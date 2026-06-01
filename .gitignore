@@ -1,0 +1,42 @@
+# Rust build artifacts
+/target/
+src-tauri/target/
+
+# Frontend build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Local cargo config (mirror/proxy settings)
+.cargo/
+src-tauri/.cargo/
+
+# Tauri generated files
+src-tauri/gen/
+
+# Log files
+*.log
+vite-*.log
+
+# Playwright MCP
+.playwright-mcp/
+
+# Docker image tar exports
+*.tar
+*.tar.gz
+
+# Temp layer blobs
+.tmp-layer-*.blob
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

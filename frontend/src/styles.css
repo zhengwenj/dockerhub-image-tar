@@ -1,0 +1,258 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #0f172a;
+  background: #f5f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: #f5f7fb;
+}
+
+.app-shell {
+  width: min(1600px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 34px 0 56px;
+}
+
+.page-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.page-title p {
+  margin: 0 0 5px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.page-title h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.language-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #667085;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.language-switch .el-segmented {
+  --el-segmented-item-selected-bg-color: #0f172a;
+  --el-segmented-item-selected-color: #ffffff;
+  --el-border-radius-base: 6px;
+}
+
+.workspace-row {
+  row-gap: 16px;
+}
+
+.workspace-card {
+  border-radius: 8px;
+  border-color: #d8e2f0;
+}
+
+.workspace-card .el-card__header {
+  padding: 18px 20px;
+}
+
+.workspace-card .el-card__body {
+  padding: 20px;
+}
+
+.card-header-title {
+  font-weight: 700;
+  color: #111827;
+}
+
+.control-form {
+  display: grid;
+  gap: 2px;
+}
+
+.control-form .el-form-item {
+  margin-bottom: 14px;
+}
+
+.control-form .el-form-item__label {
+  color: #344054;
+  font-weight: 500;
+}
+
+.control-form .el-input__wrapper,
+.control-form .el-select__wrapper {
+  border-radius: 6px;
+}
+
+.keyword-search-field,
+.output-dir-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 8px;
+  width: 100%;
+}
+
+.keyword-search-button,
+.output-dir-button {
+  width: 100%;
+}
+
+.auth-collapse {
+  margin-bottom: 14px;
+  border-radius: 8px;
+}
+
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.result-card {
+  min-height: 680px;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.count-text {
+  color: #667085;
+  font-size: 12px;
+}
+
+.image-name {
+  font-weight: 650;
+  color: #101828;
+}
+
+.image-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.description-text {
+  color: #475467;
+  line-height: 1.6;
+}
+
+.status-stack {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.export-result {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #b8d7ff;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 14px;
+  box-shadow: 0 14px 32px rgba(45, 126, 232, 0.08);
+}
+
+.export-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.export-result h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.export-result p {
+  margin: 4px 0 0;
+  color: #1d4b7a;
+  font-size: 12px;
+}
+
+.result-field {
+  display: grid;
+  gap: 6px;
+}
+
+.result-field span {
+  color: #355783;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.result-field code {
+  display: block;
+  min-height: 40px;
+  border: 1px solid #cfe2ff;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+  color: #0f172a;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+@media (max-width: 1024px) {
+  .result-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    width: min(100%, calc(100% - 24px));
+    padding-top: 24px;
+  }
+
+  .page-title h1 {
+    font-size: 22px;
+  }
+
+  .page-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .language-switch {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .action-bar,
+  .export-result-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-bar .el-button {
+    width: 100%;
+    margin-left: 0;
+  }
+}
