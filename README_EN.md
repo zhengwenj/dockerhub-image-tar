@@ -173,7 +173,7 @@ Build the Tauri desktop app:
 pnpm tauri build
 ```
 
-Currently `bundle.active` is set to `false` in `src-tauri/tauri.conf.json`. To generate installers, adjust the bundle configuration according to Tauri's release requirements.
+`bundle.active` is enabled in `src-tauri/tauri.conf.json`, so desktop installers can be generated.
 
 ## Project Structure
 
@@ -197,17 +197,7 @@ Currently `bundle.active` is set to `false` in `src-tauri/tauri.conf.json`. To g
 
 ## Changelog
 
-### 1.0.0
-
-- Initial release.
-- Docker Hub image pull and tar export.
-- `docker load`-compatible tar structure.
-- Support for both public and authenticated private image pulls.
-- Platform selection, proxy configuration, and custom output file names.
-- Tauri desktop GUI.
-- Docker Hub search, tag query, architecture selection, and export workflow.
-- Config save and load.
-- Chinese/English UI switching.
+See [CHANGELOG_EN.md](./CHANGELOG_EN.md).
 
 ## License
 

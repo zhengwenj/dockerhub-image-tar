@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [master, main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -46,15 +47,17 @@ jobs:
             }
           }
 
-          $changed = if ($previousVersion -and $previousVersion -ne $packageVersion) { "true" } else { "false" }
           $tag = "v$packageVersion"
+          git fetch --tags --force
+          $existingTag = git tag --list $tag
 
-          if ($changed -eq "true") {
-            git fetch --tags --force
-            $existingTag = git tag --list $tag
-            if ($existingTag) {
-              throw "Release tag $tag already exists."
-            }
+          $versionChanged = $previousVersion -and $previousVersion -ne $packageVersion
+          $tagMissing = -not $existingTag
+          $manualRun = "${{ github.event_name }}" -eq "workflow_dispatch"
+          $changed = if ($versionChanged -or $tagMissing -or $manualRun) { "true" } else { "false" }
+
+          if ($changed -eq "true" -and $existingTag) {
+            throw "Release tag $tag already exists."
           }
 
           "changed=$changed" >> $env:GITHUB_OUTPUT
@@ -63,6 +66,8 @@ jobs:
 
           Write-Host "Current version: $packageVersion"
           Write-Host "Previous version: $previousVersion"
+          Write-Host "Existing tag: $existingTag"
+          Write-Host "Manual run: $manualRun"
           Write-Host "Release needed: $changed"
 
   build:
@@ -164,10 +169,29 @@ jobs:
     if: needs.detect-version.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download bundle artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+
+      - name: Prepare release notes
+        env:
+          RELEASE_VERSION: ${{ needs.detect-version.outputs.version }}
+        shell: bash
+        run: |
+          awk -v version="$RELEASE_VERSION" '
+            $0 == "## " version { in_section = 1; next }
+            in_section && /^## / { exit }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          sed -i '/[^[:space:]]/,$!d' release-notes.md
+
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "No changelog section found for version $RELEASE_VERSION in CHANGELOG.md."
+            exit 1
+          fi
 
       - name: Create GitHub release
         env:
@@ -192,8 +216,6 @@ jobs:
 
           gh release create "$RELEASE_TAG" \
             --title "DockerHub Image Tar $RELEASE_VERSION" \
-            --notes "DockerHub Image Tar $RELEASE_VERSION
-
-          This release was created automatically because the project version changed." \
+            --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
             "${assets[@]}"

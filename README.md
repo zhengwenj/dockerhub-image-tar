@@ -173,7 +173,7 @@ cargo build --release
 pnpm tauri build
 ```
 
-当前 `src-tauri/tauri.conf.json` 中 `bundle.active` 为 `false`。如需生成安装包，需要按 Tauri 发布需求调整打包配置。
+当前 `src-tauri/tauri.conf.json` 已开启 `bundle.active`，可生成桌面安装包。
 
 ## 项目结构
 
@@ -197,17 +197,7 @@ pnpm tauri build
 
 ## 更新日志
 
-### 1.0.0
-
-- 初始版本。
-- 实现 Docker Hub 镜像拉取和 tar 导出。
-- 支持 `docker load` 兼容 tar 结构。
-- 支持公共镜像和认证私有镜像拉取。
-- 支持平台选择、代理配置和自定义输出文件名。
-- 新增 Tauri 桌面界面。
-- 新增 Docker Hub 搜索、tag 查询、架构选择和导出流程。
-- 新增配置保存与读取。
-- 新增中英文界面切换。
+查看 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## License
 
