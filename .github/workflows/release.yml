@@ -17,6 +17,7 @@ jobs:
     runs-on: windows-latest
     outputs:
       changed: ${{ steps.version.outputs.changed }}
+      release_exists: ${{ steps.version.outputs.release_exists }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -55,12 +56,14 @@ jobs:
           $tagMissing = -not $existingTag
           $manualRun = "${{ github.event_name }}" -eq "workflow_dispatch"
           $changed = if ($versionChanged -or $tagMissing -or $manualRun) { "true" } else { "false" }
+          $releaseExists = if ($existingTag) { "true" } else { "false" }
 
-          if ($changed -eq "true" -and $existingTag) {
+          if ($versionChanged -and $existingTag -and -not $manualRun) {
             throw "Release tag $tag already exists."
           }
 
           "changed=$changed" >> $env:GITHUB_OUTPUT
+          "release_exists=$releaseExists" >> $env:GITHUB_OUTPUT
           "version=$packageVersion" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
 
@@ -83,14 +86,17 @@ jobs:
             os: windows-latest
             bundles: msi,nsis
             artifact: windows
+            platform: windows_x64
           - name: macOS
             os: macos-latest
             bundles: dmg
             artifact: macos
+            platform: macos_aarch64
           - name: Linux
             os: ubuntu-22.04
             bundles: deb,appimage
             artifact: linux
+            platform: linux_amd64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -157,11 +163,67 @@ jobs:
       - name: Build Tauri bundle
         run: pnpm tauri build --bundles "${{ matrix.bundles }}"
 
+      - name: Stage release assets
+        env:
+          RELEASE_VERSION: ${{ needs.detect-version.outputs.version }}
+          ASSET_PLATFORM: ${{ matrix.platform }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseDir = Join-Path (Get-Location) "release-assets"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          $baseName = "dockerhub-image-tar_$env:RELEASE_VERSION`_$env:ASSET_PLATFORM"
+          $targetDir = Join-Path (Get-Location) "src-tauri/target/release"
+          $bundleDir = Join-Path $targetDir "bundle"
+
+          if ($env:RUNNER_OS -eq "Windows") {
+            $portable = Join-Path $targetDir "dockerhub-image-tar-tauri.exe"
+            if (Test-Path $portable) {
+              Copy-Item -LiteralPath $portable -Destination (Join-Path $releaseDir "$baseName`_portable.exe")
+            }
+          } elseif ($env:RUNNER_OS -eq "Linux") {
+            $portable = Join-Path $targetDir "dockerhub-image-tar-tauri"
+            if (Test-Path $portable) {
+              Copy-Item -LiteralPath $portable -Destination (Join-Path $releaseDir "$baseName`_portable")
+            }
+          }
+
+          Get-ChildItem -Path $bundleDir -Recurse -File | ForEach-Object {
+            $extension = $_.Extension
+            $destinationName = $null
+
+            if ($extension -eq ".msi") {
+              $destinationName = "$baseName.msi"
+            } elseif ($extension -eq ".exe" -and $_.Name -like "*setup*") {
+              $destinationName = "$baseName`_setup.exe"
+            } elseif ($extension -eq ".dmg") {
+              $destinationName = "$baseName.dmg"
+            } elseif ($extension -eq ".AppImage") {
+              $destinationName = "$baseName.AppImage"
+            } elseif ($extension -eq ".deb") {
+              $destinationName = "$baseName.deb"
+            } elseif ($extension -eq ".zip") {
+              $destinationName = "$baseName.zip"
+            }
+
+            if ($destinationName) {
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $releaseDir $destinationName)
+            }
+          }
+
+          $assets = Get-ChildItem -Path $releaseDir -File
+          if (-not $assets) {
+            throw "No staged release assets were found."
+          }
+
+          $assets | ForEach-Object { Write-Host "Staged asset: $($_.Name)" }
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: dockerhub-image-tar-${{ needs.detect-version.outputs.version }}-${{ matrix.artifact }}
-          path: src-tauri/target/release/bundle/**
+          path: release-assets/**
 
   publish:
     name: Publish Release
@@ -200,22 +262,22 @@ jobs:
           RELEASE_VERSION: ${{ needs.detect-version.outputs.version }}
         shell: bash
         run: |
-          mapfile -d '' assets < <(find release-assets -type f \( \
-            -name '*.AppImage' -o \
-            -name '*.deb' -o \
-            -name '*.dmg' -o \
-            -name '*.exe' -o \
-            -name '*.msi' -o \
-            -name '*.zip' \
-          \) -print0)
+          mapfile -d '' assets < <(find release-assets -type f -print0)
 
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No release assets were found."
             exit 1
           fi
 
-          gh release create "$RELEASE_TAG" \
-            --title "DockerHub Image Tar $RELEASE_VERSION" \
-            --notes-file release-notes.md \
-            --target "$GITHUB_SHA" \
-            "${assets[@]}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "DockerHub Image Tar $RELEASE_VERSION" \
+              --notes-file release-notes.md
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "DockerHub Image Tar $RELEASE_VERSION" \
+              --notes-file release-notes.md \
+              --target "$GITHUB_SHA" \
+              "${assets[@]}"
+          fi
