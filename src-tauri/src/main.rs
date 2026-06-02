@@ -165,21 +165,27 @@ async fn pull_image_as_tar(
 }
 
 #[tauri::command]
-async fn search_public_images(request: SearchRequest) -> Result<Vec<RepositorySearchResult>, String> {
+async fn search_public_images(
+    request: SearchRequest,
+) -> Result<Vec<RepositorySearchResult>, String> {
     let keyword = clean_required(request.keyword, "keyword")?;
     let proxy = request.proxy.and_then(normalize_hub_proxy);
-    tauri::async_runtime::spawn_blocking(move || search_public_images_blocking(&keyword, proxy.as_ref()))
-        .await
-        .map_err(|err| format!("failed to join search task: {err}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        search_public_images_blocking(&keyword, proxy.as_ref())
+    })
+    .await
+    .map_err(|err| format!("failed to join search task: {err}"))?
 }
 
 #[tauri::command]
 async fn list_repository_tags(request: TagQuery) -> Result<TagListResult, String> {
     let repository = clean_required(request.repository, "repository")?;
     let proxy = request.proxy.and_then(normalize_hub_proxy);
-    tauri::async_runtime::spawn_blocking(move || list_repository_tags_blocking(&repository, proxy.as_ref()))
-        .await
-        .map_err(|err| format!("failed to join tags task: {err}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        list_repository_tags_blocking(&repository, proxy.as_ref())
+    })
+    .await
+    .map_err(|err| format!("failed to join tags task: {err}"))?
 }
 
 #[tauri::command]
@@ -238,9 +244,7 @@ fn list_repository_tags_blocking(
 ) -> Result<TagListResult, String> {
     let client = build_hub_client(proxy, "hub.docker.com")?;
     let (namespace, name) = split_namespace_and_name(repository);
-    let url = format!(
-        "https://hub.docker.com/v2/namespaces/{namespace}/repositories/{name}/tags"
-    );
+    let url = format!("https://hub.docker.com/v2/namespaces/{namespace}/repositories/{name}/tags");
     let response = client
         .get(url)
         .query(&[("page_size", "30")])
@@ -277,12 +281,15 @@ fn build_hub_client(proxy: Option<&HubProxyConfig>, target_host: &str) -> Result
         let bypass = should_bypass_proxy(target_host, cfg.no_proxy.as_deref());
         if !bypass {
             if let Some(http_proxy) = clean_ref(cfg.http_proxy.as_deref()) {
-                builder = builder
-                    .proxy(Proxy::http(http_proxy).map_err(|err| format!("invalid HTTP proxy: {err}"))?);
+                builder = builder.proxy(
+                    Proxy::http(http_proxy).map_err(|err| format!("invalid HTTP proxy: {err}"))?,
+                );
             }
             if let Some(https_proxy) = clean_ref(cfg.https_proxy.as_deref()) {
-                builder = builder
-                    .proxy(Proxy::https(https_proxy).map_err(|err| format!("invalid HTTPS proxy: {err}"))?);
+                builder = builder.proxy(
+                    Proxy::https(https_proxy)
+                        .map_err(|err| format!("invalid HTTPS proxy: {err}"))?,
+                );
             }
         }
     }
@@ -296,18 +303,23 @@ fn load_app_config_blocking(app: &tauri::AppHandle) -> Result<AppConfig, String>
     if !path.exists() {
         return Ok(default_app_config());
     }
-    let raw = fs::read_to_string(&path).map_err(|err| format!("failed to read config file: {err}"))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|err| format!("failed to read config file: {err}"))?;
     let mut config = serde_json::from_str::<AppConfig>(&raw)
         .map_err(|err| format!("failed to parse config file {}: {err}", path.display()))?;
     normalize_app_config(&mut config);
     Ok(config)
 }
 
-fn save_app_config_blocking(app: &tauri::AppHandle, mut config: AppConfig) -> Result<AppConfig, String> {
+fn save_app_config_blocking(
+    app: &tauri::AppHandle,
+    mut config: AppConfig,
+) -> Result<AppConfig, String> {
     normalize_app_config(&mut config);
     let path = app_config_path(app)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("failed to create config directory: {err}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create config directory: {err}"))?;
     }
     let raw = serde_json::to_string_pretty(&config)
         .map_err(|err| format!("failed to serialize config: {err}"))?;
@@ -395,7 +407,10 @@ fn build_architectures(images: Vec<DockerImagePlatform>) -> Vec<ArchitectureOpti
             Some(variant) => format!("{os}/{architecture}/{variant}"),
             None => format!("{os}/{architecture}"),
         };
-        if items.iter().any(|item: &ArchitectureOption| item.label == label) {
+        if items
+            .iter()
+            .any(|item: &ArchitectureOption| item.label == label)
+        {
             continue;
         }
         items.push(ArchitectureOption {

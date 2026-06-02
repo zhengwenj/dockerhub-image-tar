@@ -668,27 +668,26 @@ fn download_blob_to_file(
     client: &Client,
     base: &str,
     repo: &str,
-    digest: &str,
-    media_type: Option<&str>,
-    expected_diff_digest: &str,
     auth: &RegistryAuth,
     token: &mut Option<String>,
-    destination: &Path,
+    layer: &LayerDownloadJob,
 ) -> Result<(), String> {
     let mut response = request_registry(
         client,
         Method::GET,
-        &format!("{base}/v2/{repo}/blobs/{digest}"),
+        &format!("{base}/v2/{repo}/blobs/{}", layer.digest),
         None,
         auth,
         token,
     )?;
-    let mut output =
-        File::create(destination).map_err(|e| format!("failed to create temporary layer: {e}"))?;
+    let mut output = File::create(&layer.temp_blob_path)
+        .map_err(|e| format!("failed to create temporary layer: {e}"))?;
 
-    let expected_key = digest_to_key(expected_diff_digest)?;
-    let source_key = digest_to_key(digest)?;
-    let decode_gzip = media_type
+    let expected_key = digest_to_key(&layer.expected_diff_digest)?;
+    let source_key = digest_to_key(&layer.digest)?;
+    let decode_gzip = layer
+        .media_type
+        .as_deref()
         .map(|value| value.contains("gzip"))
         .unwrap_or(false)
         || expected_key != source_key;
@@ -703,10 +702,11 @@ fn download_blob_to_file(
             .map_err(|e| format!("failed to write image layer: {e}"))?;
     }
 
-    let actual_digest = build_sha256_digest_from_file(destination)?;
-    if actual_digest != expected_diff_digest {
+    let actual_digest = build_sha256_digest_from_file(&layer.temp_blob_path)?;
+    if actual_digest != layer.expected_diff_digest {
         return Err(format!(
-            "layer digest mismatch, expected {expected_diff_digest}, got {actual_digest}"
+            "layer digest mismatch, expected {}, got {actual_digest}",
+            layer.expected_diff_digest
         ));
     }
     Ok(())
@@ -738,23 +738,10 @@ fn download_layers_in_parallel(
             let base = base.to_string();
             let repo = repo.to_string();
             let auth = auth.clone();
-            let digest = layer.digest.clone();
-            let media_type = layer.media_type.clone();
-            let expected_diff_digest = layer.expected_diff_digest.clone();
-            let destination = layer.temp_blob_path.clone();
+            let layer = layer.clone();
             handles.push(std::thread::spawn(move || {
                 let mut token: Option<String> = None;
-                download_blob_to_file(
-                    &client,
-                    &base,
-                    &repo,
-                    &digest,
-                    media_type.as_deref(),
-                    &expected_diff_digest,
-                    &auth,
-                    &mut token,
-                    &destination,
-                )
+                download_blob_to_file(&client, &base, &repo, &auth, &mut token, &layer)
             }));
         }
 
@@ -1100,7 +1087,7 @@ fn build_empty_container_config() -> Value {
 }
 
 fn sanitize_file_name(input: &str) -> String {
-    input.replace('/', "_").replace(':', "_")
+    input.replace(['/', ':'], "_")
 }
 
 fn should_bypass_proxy(target_host: &str, no_proxy: Option<&str>) -> bool {
