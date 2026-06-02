@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  detect-version:
+    name: Detect Version Change
+    runs-on: windows-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version files
+        id: version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriConfigVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $rootCargoVersion = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $tauriCargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+
+          $versions = @($packageVersion, $tauriConfigVersion, $rootCargoVersion, $tauriCargoVersion) | Sort-Object -Unique
+          if ($versions.Count -ne 1) {
+            throw "Version mismatch. package.json=$packageVersion, tauri.conf.json=$tauriConfigVersion, Cargo.toml=$rootCargoVersion, src-tauri/Cargo.toml=$tauriCargoVersion"
+          }
+
+          $previousVersion = ""
+          $before = "${{ github.event.before }}"
+          if ($before -and $before -ne "0000000000000000000000000000000000000000") {
+            $previousTauriConfig = git show "$before`:src-tauri/tauri.conf.json" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $previousTauriConfig) {
+              $previousVersion = ($previousTauriConfig | ConvertFrom-Json).version
+            }
+          }
+
+          $changed = if ($previousVersion -and $previousVersion -ne $packageVersion) { "true" } else { "false" }
+          $tag = "v$packageVersion"
+
+          if ($changed -eq "true") {
+            git fetch --tags --force
+            $existingTag = git tag --list $tag
+            if ($existingTag) {
+              throw "Release tag $tag already exists."
+            }
+          }
+
+          "changed=$changed" >> $env:GITHUB_OUTPUT
+          "version=$packageVersion" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Current version: $packageVersion"
+          Write-Host "Previous version: $previousVersion"
+          Write-Host "Release needed: $changed"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: detect-version
+    if: needs.detect-version.outputs.changed == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            bundles: msi,nsis
+            artifact: windows
+          - name: macOS
+            os: macos-latest
+            bundles: dmg
+            artifact: macos
+          - name: Linux
+            os: ubuntu-22.04
+            bundles: deb,appimage
+            artifact: linux
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> src-tauri/target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+      - name: cargo fmt (tauri)
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy (tauri)
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Build Tauri bundle
+        run: pnpm tauri build --bundles "${{ matrix.bundles }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockerhub-image-tar-${{ needs.detect-version.outputs.version }}-${{ matrix.artifact }}
+          path: src-tauri/target/release/bundle/**
+
+  publish:
+    name: Publish Release
+    needs: [detect-version, build]
+    if: needs.detect-version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.detect-version.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.detect-version.outputs.version }}
+        shell: bash
+        run: |
+          mapfile -d '' assets < <(find release-assets -type f \( \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.dmg' -o \
+            -name '*.exe' -o \
+            -name '*.msi' -o \
+            -name '*.zip' \
+          \) -print0)
+
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets were found."
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            --title "DockerHub Image Tar $RELEASE_VERSION" \
+            --notes "DockerHub Image Tar $RELEASE_VERSION
+
+          This release was created automatically because the project version changed." \
+            --target "$GITHUB_SHA" \
+            "${assets[@]}"

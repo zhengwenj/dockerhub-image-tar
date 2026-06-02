@@ -10,6 +10,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version-check:
+    name: Version Check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version files
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriConfigVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $rootCargoVersion = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $tauriCargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+
+          $versions = @($packageVersion, $tauriConfigVersion, $rootCargoVersion, $tauriCargoVersion) | Sort-Object -Unique
+          if ($versions.Count -ne 1) {
+            throw "Version mismatch. package.json=$packageVersion, tauri.conf.json=$tauriConfigVersion, Cargo.toml=$rootCargoVersion, src-tauri/Cargo.toml=$tauriCargoVersion"
+          }
+
+          Write-Host "Project version: $packageVersion"
+
   rust-check:
     name: Rust Check
     runs-on: windows-latest
@@ -38,13 +59,41 @@ jobs:
         run: cargo test
 
   tauri-check:
-    name: Tauri Check
-    runs-on: windows-latest
+    name: Tauri Check (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+          - name: Linux
+            os: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "dockerhub-image-tar-tauri"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dockerhub-image-tar",
  "reqwest 0.12.28",
