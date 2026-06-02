@@ -100,7 +100,13 @@ body {
   border-radius: 6px;
 }
 
-.keyword-search-field,
+.keyword-search-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 96px;
+  gap: 8px;
+  width: 100%;
+}
+
 .output-dir-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 72px;
@@ -109,8 +115,13 @@ body {
 }
 
 .keyword-search-button,
+.keyword-direct-button,
 .output-dir-button {
   width: 100%;
+}
+
+.keyword-direct-button {
+  margin-left: 0;
 }
 
 .auth-collapse {
@@ -254,5 +265,13 @@ body {
   .action-bar .el-button {
     width: 100%;
     margin-left: 0;
+  }
+
+  .keyword-search-field {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .keyword-search-field .el-input {
+    grid-column: 1 / -1;
   }
 }

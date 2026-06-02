@@ -9,12 +9,12 @@ import "./styles.css";
 
 const messages = {
   zh: {
-    appSubtitle: "Docker Hub / 公共镜像拉取",
+    appSubtitle: "Docker Hub / 公共与私有镜像拉取",
     appTitle: "Docker Hub 工作区",
     language: "语言",
     queryPanel: "查询与拉取参数",
     keyword: "关键字",
-    keywordPlaceholder: "输入关键字，如 nginx, redis",
+    keywordPlaceholder: "搜索关键字，或私有镜像完整名 org/app:tag",
     outputDir: "默认输出目录",
     outputDirPlaceholder: "~/docker-images",
     fileName: "导出文件名",
@@ -34,6 +34,7 @@ const messages = {
     passwordPlaceholder: "推荐 Access Token",
     saveConfig: "保存配置",
     search: "搜索",
+    privateDirect: "私有直连",
     export: "导出",
     results: "搜索结果",
     count: "共 {count} 条",
@@ -41,6 +42,7 @@ const messages = {
     imageName: "镜像名",
     description: "描述",
     noDescription: "无描述",
+    directRepository: "直连仓库",
     action: "操作",
     choose: "选择",
     official: "Official",
@@ -61,6 +63,10 @@ const messages = {
     searchDoneTitle: "搜索完成",
     searchDoneBody: "共返回 {count} 条镜像。",
     searchFailedTitle: "搜索失败",
+    privateDirectReadyTitle: "私有镜像已就绪",
+    privateDirectReadyBody: "已使用输入框中的镜像名和 tag 创建直连选择项，可选择平台后导出。",
+    enterPrivateImage: "私有直连请输入完整镜像名并带 tag，如 namespace/repository:0.1",
+    manualPlatformCount: "{count} 个常用平台",
     loadingImageTitle: "正在加载镜像信息",
     loadingImageBody: "正在查询 {repository} 的 tag 和架构。",
     imageSelectedTitle: "镜像已选择",
@@ -81,12 +87,12 @@ const messages = {
     browse: "浏览",
   },
   en: {
-    appSubtitle: "Docker Hub / Public image export",
+    appSubtitle: "Docker Hub / Public and private image export",
     appTitle: "Docker Hub Workspace",
     language: "Language",
     queryPanel: "Search and pull settings",
     keyword: "Keyword",
-    keywordPlaceholder: "Search images, e.g. nginx, redis",
+    keywordPlaceholder: "Search keywords, or private image org/app:tag",
     outputDir: "Default output directory",
     outputDirPlaceholder: "~/docker-images",
     fileName: "Export file name",
@@ -106,6 +112,7 @@ const messages = {
     passwordPlaceholder: "Access token recommended",
     saveConfig: "Save settings",
     search: "Search",
+    privateDirect: "Private direct",
     export: "Export",
     results: "Search results",
     count: "{count} total",
@@ -113,6 +120,7 @@ const messages = {
     imageName: "Image",
     description: "Description",
     noDescription: "No description",
+    directRepository: "Direct repository",
     action: "Action",
     choose: "Choose",
     official: "Official",
@@ -133,6 +141,10 @@ const messages = {
     searchDoneTitle: "Search complete",
     searchDoneBody: "{count} images returned.",
     searchFailedTitle: "Search failed",
+    privateDirectReadyTitle: "Private image ready",
+    privateDirectReadyBody: "A direct image selection has been created from the image name and tag. Choose a platform, then export.",
+    enterPrivateImage: "Private direct requires a full image name with tag, for example namespace/repository:0.1",
+    manualPlatformCount: "{count} common platforms",
     loadingImageTitle: "Loading image metadata",
     loadingImageBody: "Loading tags and architectures for {repository}.",
     imageSelectedTitle: "Image selected",
@@ -191,6 +203,16 @@ const App = {
       httpsProxy: "",
       noProxy: "",
     });
+    const commonArchitectures = [
+      { os: "linux", architecture: "amd64", variant: null, label: "linux/amd64" },
+      { os: "linux", architecture: "arm64", variant: null, label: "linux/arm64" },
+      { os: "linux", architecture: "arm", variant: "v7", label: "linux/arm/v7" },
+      { os: "linux", architecture: "arm", variant: "v6", label: "linux/arm/v6" },
+      { os: "linux", architecture: "386", variant: null, label: "linux/386" },
+      { os: "linux", architecture: "s390x", variant: null, label: "linux/s390x" },
+      { os: "linux", architecture: "ppc64le", variant: null, label: "linux/ppc64le" },
+      { os: "windows", architecture: "amd64", variant: null, label: "windows/amd64" },
+    ];
 
     const t = (key, params = {}) => {
       const template = messages[language.value]?.[key] ?? messages.zh[key] ?? key;
@@ -241,6 +263,35 @@ const App = {
       const lastColon = text.lastIndexOf(":");
       if (lastColon > lastSlash) return text.slice(0, lastColon) || text;
       return text;
+    }
+
+    function stripDockerhubPrefix(value) {
+      let text = value.trim();
+      for (const prefix of ["https://", "http://"]) {
+        if (text.startsWith(prefix)) text = text.slice(prefix.length);
+      }
+      for (const prefix of ["docker.io/", "index.docker.io/", "registry-1.docker.io/"]) {
+        if (text.startsWith(prefix)) return text.slice(prefix.length);
+      }
+      return text;
+    }
+
+    function parseImageReference(value) {
+      const text = clean(value);
+      if (!text) return null;
+      const withoutRegistry = stripDockerhubPrefix(text);
+      if (withoutRegistry.includes("@")) {
+        return null;
+      }
+      const lastSlash = withoutRegistry.lastIndexOf("/");
+      const lastColon = withoutRegistry.lastIndexOf(":");
+      if (lastColon > lastSlash) {
+        const repository = withoutRegistry.slice(0, lastColon).trim();
+        const tag = withoutRegistry.slice(lastColon + 1).trim();
+        if (!repository || !tag) return null;
+        return { repository, tag };
+      }
+      return null;
     }
 
     function buildProxyPayload() {
@@ -353,6 +404,51 @@ const App = {
       }
     }
 
+    async function selectPrivateImage() {
+      const parsed = parseImageReference(keyword.value);
+      if (!parsed) {
+        ElMessage.warning(t("enterPrivateImage"));
+        return;
+      }
+
+      exportResult.value = null;
+      const [namespace, name] = (() => {
+        const parts = parsed.repository.split("/");
+        if (parts.length > 1) return [parts.slice(0, -1).join("/"), parts[parts.length - 1]];
+        return ["library", parsed.repository];
+      })();
+      const row = {
+        repository: parsed.repository,
+        namespace,
+        name,
+        description: t("directRepository"),
+        star_count: 0,
+        pull_count: 0,
+        is_official: namespace === "library",
+        is_direct: true,
+      };
+
+      selectedRepository.value = row;
+      results.value = [row];
+      tags.value = [
+        {
+          name: parsed.tag,
+          full_size: 0,
+          last_pushed: null,
+          architectures: commonArchitectures,
+          is_direct: true,
+        },
+      ];
+      selectedTagName.value = parsed.tag;
+      syncArchitectureDefaults();
+      try {
+        await saveConfig(false);
+      } catch {
+        // Direct selection is still usable when config persistence is unavailable.
+      }
+      setStatus("success", "privateDirectReadyTitle", "privateDirectReadyBody");
+    }
+
     function syncArchitectureDefaults() {
       const tag = selectedTag.value;
       if (!tag || tag.architectures.length === 0) {
@@ -365,6 +461,10 @@ const App = {
     }
 
     async function selectImage(row) {
+      if (row.is_direct) {
+        selectedRepository.value = row;
+        return;
+      }
       selectedRepository.value = row;
       loadingTags.value = true;
       tags.value = [];
@@ -387,6 +487,13 @@ const App = {
       } finally {
         loadingTags.value = false;
       }
+    }
+
+    function tagOptionLabel(tag) {
+      if (tag.is_direct) {
+        return `${tag.name} · ${t("manualPlatformCount", { count: tag.architectures.length })}`;
+      }
+      return `${tag.name} · ${formatBytes(tag.full_size)} · ${t("architectureCount", { count: tag.architectures.length })}`;
     }
 
     function onTagChange() {
@@ -513,6 +620,7 @@ const App = {
       osOptions,
       archOptions,
       searchImages,
+      selectPrivateImage,
       saveConfig,
       selectImage,
       onTagChange,
@@ -523,6 +631,7 @@ const App = {
       formatNumber,
       formatPulls,
       formatBytes,
+      tagOptionLabel,
     };
   },
   template: `
@@ -555,6 +664,7 @@ const App = {
                 <div class="keyword-search-field">
                   <el-input v-model="keyword" :placeholder="t('keywordPlaceholder')" clearable @keyup.enter="searchImages" />
                   <el-button type="primary" class="keyword-search-button" :loading="searching" @click="searchImages">{{ t("search") }}</el-button>
+                  <el-button class="keyword-direct-button" @click="selectPrivateImage">{{ t("privateDirect") }}</el-button>
                 </div>
               </el-form-item>
 
@@ -578,7 +688,7 @@ const App = {
                   <el-option
                     v-for="tag in tags"
                     :key="tag.name"
-                    :label="tag.name + ' · ' + formatBytes(tag.full_size) + ' · ' + t('architectureCount', { count: tag.architectures.length })"
+                    :label="tagOptionLabel(tag)"
                     :value="tag.name"
                   />
                 </el-select>
@@ -656,9 +766,9 @@ const App = {
                 <template #default="{ row }">
                   <div class="image-name">{{ row.repository }}</div>
                   <div class="image-meta">
-                    <span>{{ row.is_official ? t("official") : row.namespace }}</span>
-                    <span>{{ t("stars") }} {{ formatNumber(row.star_count) }}</span>
-                    <span>{{ t("pulls") }} {{ formatPulls(row.pull_count) }}</span>
+                    <span>{{ row.is_direct ? t("directRepository") : (row.is_official ? t("official") : row.namespace) }}</span>
+                    <span v-if="!row.is_direct">{{ t("stars") }} {{ formatNumber(row.star_count) }}</span>
+                    <span v-if="!row.is_direct">{{ t("pulls") }} {{ formatPulls(row.pull_count) }}</span>
                   </div>
                 </template>
               </el-table-column>
